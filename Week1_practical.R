@@ -212,5 +212,9 @@ tempdiff <- cbind(0, temp[,6:ncol(temp)]-temp[,5:(ncol(temp)-1)])
 newtemp <- cbind(newtemp, unlist(tempdiff))
 colnames(newtemp)[ncol(newtemp)] <- "tempdiff"
 
+autoplot.OpenStreetMap(map) + geom_point(data=newtemp[years,], aes(x=LOG,y=LAT, color=tempdiff, size=log(ALT))) + scale_colour_gradient2(low="blue", mid='white', high="red") + facet_wrap(facets=~year)
+
+
+
 
 
