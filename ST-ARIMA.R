@@ -1,0 +1,207 @@
+library(readr)
+
+# 读取txt.gz文件
+compressed_file <- "PeMS/d08_text_station_hour_2023_01.txt.gz"
+lines <- readr::read_lines(gzfile(compressed_file))
+
+# 将字符向量连接成一个以换行符分隔的字符串
+lines_text <- paste(lines, collapse = "\n")
+
+# 使用read_csv()函数将字符串转换为dataframe
+dataframe <- read_csv(lines_text, col_names = c("TimeStamp", 
+                                                "Station", 
+                                                "District",
+                                                "Route",
+                                                "Direction",
+                                                "LaneType",
+                                                "StationLength",
+                                                "Samples",
+                                                "Observed",
+                                                "Flow",
+                                                "AvgOccupancy",
+                                                "AvgSpeed",
+                                                "Delay (V_t=35)",
+                                                "Delay (V_t=40)",
+                                                "Delay (V_t=45)",
+                                                "Delay (V_t=50)",
+                                                "Delay (V_t=55)",
+                                                "Delay (V_t=60)",
+                                                "Lane N Flow",
+                                                "Lane N Avg Occ",
+                                                "Lane N Avg Speed"
+))
+
+# 查看前几行数据
+dataframe <- dataframe[dataframe$LaneType == "ML",]
+head(dataframe)
+
+# 读取metadata数据为dataframe
+metadata <- read_delim("PeMS/d08_text_meta_2023_01_01.txt", delim = "\t", na = "")
+metadata_cor <- metadata[, c("ID", "Longitude", "Latitude")]
+
+# 左连接（left join）dataframe和metadata
+result <- merge(dataframe, metadata_cor, by.x = "Station", by.y = "ID", all.x = TRUE)
+
+# 查看前几行数据
+head(result)
+
+# 筛选数据
+data  <- result[, c("Station","TimeStamp","Flow","Route","Direction","LaneType","Longitude","Latitude")]
+
+# 查找data中的缺失值
+missing_values <- is.na(data)
+
+# 计算每列的缺失值数量
+missing_values_count <- colSums(missing_values)
+
+# 显示每列的缺失值数量
+missing_values_count
+
+
+
+# ST-ARIMA模型
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(leaflet)
+
+# 保留唯一的站点ID和对应的经纬度
+stations <- distinct(data, Station, Longitude, Latitude)
+colnames(stations) <- c("station","longitude","latitude")
+
+# 查看前几行数据
+head(stations)
+
+
+# 创建一个leaflet地图对象，添加OpenStreetMap底图
+stations$longitude <- as.numeric(stations$longitude)
+stations$latitude <- as.numeric(stations$latitude)
+
+map <- leaflet() %>%
+  addProviderTiles(providers$OpenStreetMap) %>%
+  setView(lng = mean(stations$longitude),
+          lat = mean(stations$latitude),
+          zoom = 10)
+
+# 将站点数据添加到地图上
+map <- map %>%
+  addCircleMarkers(data = stations,
+                   lng = ~longitude,
+                   lat = ~latitude,
+                   color = "red",
+                   radius = 5)
+# 显示地图
+map
+
+write.csv(stations, "stations.csv", row.names = FALSE)
+
+
+
+# 读取路网数据
+road_nodes <- read_delim("PeMS/nodes.txt", delim = " ",na = "",col_names = c("nodeID","longitude","latitude"))
+road_edges <- read_delim("PeMS/edges.txt", delim = " ",na = "",col_names = c("edgeID","start_node","end_node","distance"))
+
+# 查看前几行数据
+head(road_nodes)
+
+
+# 为减少计算量，提升系统内存，提取一定范围内的路网数据和station数据：
+library(sf)
+
+
+# 将unique_stations数据框转换为简单要素集（sf）对象
+point_data <- st_as_sf(stations, coords = c("longitude", "latitude"), crs = 4326)
+
+# 创建表示矩形边界的简单要素集（sf）对象
+polygon_wkt <- "POLYGON((-117.77845892429981234 33.54450494870994959, -117.77845892429981234 34.23419506307818239, -116.96792918321867205 34.23419506307818239, -116.96792918321867205 33.54450494870994959, -117.77845892429981234 33.54450494870994959))"
+polygon_sf <- st_as_sf(st_as_sfc(polygon_wkt), crs = 4326)
+
+# 使用st_intersects()函数找到位于矩形内的站点的逻辑向量
+stations_within_polygon_logical <- apply(st_intersects(point_data, polygon_sf), 1, any)
+
+# 使用逻辑向量筛选出位于矩形内的站点
+stations_within_polygon <- point_data[stations_within_polygon_logical, ]
+
+# 将筛选出的站点转换回数据框并保留geometry和station属性
+filtered_stations <- as.data.frame(stations_within_polygon[c("geometry", "station")])
+
+# 提取经纬度
+filtered_stations <- filtered_stations %>%
+  mutate(longitude = st_coordinates(geometry)[, 1],
+         latitude = st_coordinates(geometry)[, 2])
+
+# 移除geometry列
+filtered_stations <- filtered_stations[, -1]
+
+
+
+# 按同样的方法筛选出位于矩形内的路网节点nodes
+nodes_data <- st_as_sf(road_nodes, coords = c("longitude", "latitude"), crs = 4326)
+nodes_within_polygon_logical <- apply(st_intersects(nodes_data, polygon_sf), 1, any)
+nodes_within_polygon <- nodes_data[nodes_within_polygon_logical, ]
+filtered_nodes <- as.data.frame(nodes_within_polygon[c("geometry", "nodeID")])
+
+# 提取经纬度
+filtered_nodes <- filtered_nodes %>%
+  mutate(longitude = st_coordinates(geometry)[, 1],
+         latitude = st_coordinates(geometry)[, 2])
+
+# 移除geometry列
+filtered_nodes <- filtered_nodes[, -1]
+
+
+
+
+
+# 计算基于路网的station之间的距离
+# 首先计算离station最近的路网节点：
+filtered_stations_sf <- st_as_sf(filtered_stations, coords = c("longitude", "latitude"), crs = 4326)
+road_nodes_sf <- st_as_sf(filtered_nodes, coords = c("longitude", "latitude"), crs = 4326)
+# 计算每个节点与最近的路网节点的距离矩阵
+distance_matrix <- st_distance(filtered_stations_sf, road_nodes_sf)
+# 找到每个站点最近的路网节点索引
+nearest_node_indices <- apply(distance_matrix, 1, which.min)
+# 使用这些索引为station添加最近的路网节点ID
+filtered_stations$nearest_node <- road_nodes$nodeID[nearest_node_indices]
+
+
+# 创建图形对象
+library(igraph)
+road_edges <- road_edges[, c("start_node", "end_node", "distance", "edgeID")]
+graph <- graph_from_data_frame(d = road_edges, vertices = road_nodes, directed = FALSE)
+
+# 为边缘分配权重
+E(graph)$weight <- road_edges$distance
+
+# 为图形中的顶点分配ID
+V(graph)$name <- V(graph)
+V(graph)$name
+
+# 在stations数据框中为每个站点添加一个顶点ID
+filtered_stations$vertex_id <- match(filtered_stations$nearest_node, V(graph)$name)
+
+# 使用Dijkstra算法计算各个站点之间的最短路径距离矩阵
+shortest_path_matrix <- distances(graph, v = unique(filtered_stations$vertex_id), to = unique(filtered_stations$vertex_id), weights = E(graph)$weight)
+shortest_path_matrix
+
+
+# 用节点之间的最短距离代表station之间的最短距离
+# 创建一个 n x n 的零矩阵
+n  <- as.numeric(nrow(filtered_stations))
+station_distance_matrix <- matrix(0, nrow = n, ncol = n)
+
+# 使用 for 循环填充矩阵
+for (i in 1:n) {
+  for (j in 1:n) {
+    # 如果 i 和 j 相等，则距离为 0
+    if (i == j) {
+      station_distance_matrix[i, j] <- 0
+    } else {
+      # 如果 i 和 j 不相等，则获取 i 和 j 的 ID，计算它们之间的最短距离
+      start_node <- filtered_stations$nearest_node[i]
+      end_node <- filtered_stations$nearest_node[j]
+      distance <- shortest_path_matrix[start_node, end_node]
+      station_distance_matrix[i, j] <- distance
+    }
+  }
+}
