@@ -98,8 +98,8 @@ write.csv(stations, "stations.csv", row.names = FALSE)
 
 
 # 读取路网数据
-road_nodes <- read_delim("PeMS/nodes.txt", delim = " ",na = "",col_names = c("nodeID","longitude","latitude"))
-road_edges <- read_delim("PeMS/edges.txt", delim = " ",na = "",col_names = c("edgeID","start_node","end_node","distance"))
+road_nodes <- read_delim("PeMS/nodes.txt", delim = "\t",na = "",col_names = c("nodeID","longitude","latitude"))
+road_edges <- read_delim("PeMS/edges.txt", delim = "\t",na = "",col_names = c("edgeID","start_node","end_node","distance"))
 
 # 查看前几行数据
 head(road_nodes)
@@ -266,32 +266,42 @@ missing_values_count <- colSums(missing_values)
 missing_values_count
 
 
-# 开始建立模型：
-library(lubridate)
-
-# 将时间戳转换为日期时间格式
-filtered_df$Date <- mdy_hms(filtered_df$TimeStamp)
-
-
-# 提取日期和时间
-filtered_df$Day <- date(filtered_df$Date)
-filtered_df$Time <- hour(filtered_df$Date)
-
-# 将 2023 年 1 月 22 日 之前的数据作为训练集，其他数据作为测试集
-train_data <- subset(filtered_df, Day < ymd(20230122))
-test_data <- subset(filtered_df, Day >= ymd(20230122))
-
-
-library(stlplus)
-library(forecast)
-
-ts_train_data <- ts(filtered_df$Flow, frequency = 24)
 
 
 # 建立 ST-ARIMA 模型
-model <- stlm(Flow ~ trend + season + 
-                strucchange::strucchange(Time, type = "Chow", 
-                                         breaks = as.POSIXct("2023-01-20 00:00:00")), 
-              data = ts_train_data, 
-              weights = weights_list)
+library(stlplus)
+library(forecast)
+source("starima_package.R")
+library(reshape2)
+
+# 将数据从长格式转换为宽格式
+wide_df <- dcast(filtered_df, TimeStamp ~ Station, value.var = "Flow")
+wide_df <- wide_df[, -1]
+# 转换为矩阵
+df_mtx <- as.matrix(wide_df)
+
+
+# 处理权重矩阵，进行行标准化和无限值的替换
+weights <- as.matrix(weights)
+# 将所有的infinite值替换为0
+weights[!is.finite(weights)] <- 0
+# 行标准化
+row_sums <- apply(weights, 1, sum)
+weights_norm <- t(t(weights) / row_sums)
+
+
+# Space-time Autocorrelation and partial autocorrelation analysis
+stacf(df_mtx, weights_norm, 24*3)
+
+# 进行季节性差分
+df_mtx.diff <- diff(df_mtx,lag=24,differences=1)
+
+stacf(df_mtx.diff, weights_norm, 24*3)
+
+# 查看stpacf图
+stpacf(df_mtx, weights_norm, 24*3)
+stpacf(df_mtx.diff,weights_norm,48)
+
+
+# Step 3. Model Identification of STARIMA
 
