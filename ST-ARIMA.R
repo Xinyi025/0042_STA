@@ -135,6 +135,28 @@ filtered_stations <- filtered_stations[, -1]
 
 
 
+filtered_stations$longitude <- as.numeric(filtered_stations$longitude)
+filtered_stations$latitude <- as.numeric(filtered_stations$latitude)
+# 将站点数据添加到地图上
+map1 <- leaflet() %>%
+  addProviderTiles(providers$OpenStreetMap) %>%
+  setView(lng = mean(stations$longitude),
+          lat = mean(stations$latitude),
+          zoom = 10)
+
+map1 <- map1 %>%
+  addCircleMarkers(data = filtered_stations,
+                   lng = ~longitude,
+                   lat = ~latitude,
+                   color = "red",
+                   radius = 5) %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(data = polygon_sf, fillOpacity = 0.2, fillColor = "blue")
+# 显示地图
+map1
+
+
+
 # 按同样的方法筛选出位于矩形内的路网节点nodes
 nodes_data <- st_as_sf(road_nodes, coords = c("longitude", "latitude"), crs = 4326)
 nodes_within_polygon_logical <- apply(st_intersects(nodes_data, polygon_sf), 1, any)
@@ -150,6 +172,17 @@ filtered_nodes <- filtered_nodes %>%
 filtered_nodes <- filtered_nodes[, -1]
 
 
+filtered_nodes$longitude <- as.numeric(filtered_nodes$longitude)
+filtered_nodes$latitude <- as.numeric(filtered_nodes$latitude)
+# 将站点数据添加到地图上
+map <- map %>%
+  addCircleMarkers(data = filtered_nodes,
+                   lng = ~longitude,
+                   lat = ~latitude,
+                   color = "blue",
+                   radius = 5)
+# 显示地图
+map
 
 
 
@@ -182,26 +215,83 @@ filtered_stations$vertex_id <- match(filtered_stations$nearest_node, V(graph)$na
 
 # 使用Dijkstra算法计算各个站点之间的最短路径距离矩阵
 shortest_path_matrix <- distances(graph, v = unique(filtered_stations$vertex_id), to = unique(filtered_stations$vertex_id), weights = E(graph)$weight)
-shortest_path_matrix
-
+dim(shortest_path_matrix)
+print(colnames(shortest_path_matrix))
+print(rownames(shortest_path_matrix))
 
 # 用节点之间的最短距离代表station之间的最短距离
 # 创建一个 n x n 的零矩阵
+
 n  <- as.numeric(nrow(filtered_stations))
 station_distance_matrix <- matrix(0, nrow = n, ncol = n)
+rownames(station_distance_matrix) <- filtered_stations$station
+colnames(station_distance_matrix) <- filtered_stations$station
 
 # 使用 for 循环填充矩阵
 for (i in 1:n) {
   for (j in 1:n) {
-    # 如果 i 和 j 相等，则距离为 0
-    if (i == j) {
-      station_distance_matrix[i, j] <- 0
-    } else {
-      # 如果 i 和 j 不相等，则获取 i 和 j 的 ID，计算它们之间的最短距离
       start_node <- filtered_stations$nearest_node[i]
       end_node <- filtered_stations$nearest_node[j]
-      distance <- shortest_path_matrix[start_node, end_node]
+      distance <- shortest_path_matrix[as.character(start_node), as.character(end_node)]
       station_distance_matrix[i, j] <- distance
     }
   }
-}
+station_distance_matrix
+as.matrix(station_distance_matrix)
+
+
+# 以station_distance_matrix作为距离矩阵，应用反距离权重法得到空间权重矩阵
+library(spdep)
+# 将距离矩阵转换为距离对象
+# 构建反距离权重矩阵
+weights <- 1/station_distance_matrix
+# 将权重矩阵标准化
+weights_list <- mat2listw(weights, style = "W")
+
+
+# 合并两个数据框
+merged_df <- merge(data, filtered_stations, by.x = "Station", by.y = "station")
+merged_df
+
+# 保留需要的列
+filtered_df <- merged_df[, c("Station", "TimeStamp", "Flow")]
+filtered_df
+
+# 检查是否只保filtered_df留了矩形框内的station
+all(filtered_df$Station %in% filtered_stations$station)
+
+# 检查filtered_df中是否有缺失值
+missing_values <- is.na(filtered_df)
+missing_values_count <- colSums(missing_values)
+missing_values_count
+
+
+# 开始建立模型：
+library(lubridate)
+
+# 将时间戳转换为日期时间格式
+filtered_df$Date <- mdy_hms(filtered_df$TimeStamp)
+
+
+# 提取日期和时间
+filtered_df$Day <- date(filtered_df$Date)
+filtered_df$Time <- hour(filtered_df$Date)
+
+# 将 2023 年 1 月 22 日 之前的数据作为训练集，其他数据作为测试集
+train_data <- subset(filtered_df, Day < ymd(20230122))
+test_data <- subset(filtered_df, Day >= ymd(20230122))
+
+
+library(stlplus)
+library(forecast)
+
+ts_train_data <- ts(filtered_df$Flow, frequency = 24)
+
+
+# 建立 ST-ARIMA 模型
+model <- stlm(Flow ~ trend + season + 
+                strucchange::strucchange(Time, type = "Chow", 
+                                         breaks = as.POSIXct("2023-01-20 00:00:00")), 
+              data = ts_train_data, 
+              weights = weights_list)
+
