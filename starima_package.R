@@ -272,7 +272,7 @@ for (i in 1:N)
 {
 	Z[,i]<-znorm(Z[,i]);
 }
-
+print(1)
 
 # Compute the ST-ACF according to Pfeifer and Deutsch.
 
@@ -280,6 +280,8 @@ stacf <- matrix(0,nLags+1, 1);
 stacf[1,1] <- 1;
 
 W<-t(W);
+
+print(1)
 
 for (s in 1:nLags)
 {
@@ -303,12 +305,16 @@ for (s in 1:nLags)
 	stacf[s+1,1] <- (Rlk/sqrt(Rll*Rkk))*(T_len/(T_len-s));
 }
 
+print(1)
+
 # Calculate confidence intervals
 
 nSE <- 2
 sigmaQ <- sqrt(1/((T_len-nLags)*N));
 ubound <- sigmaQ*nSE;
 lbound <- sigmaQ*-nSE;
+
+print(1)
 
 plot(stacf, main="Space-Time Autocorrelation Function",xlab="Time Lags", ylab="ST-Autocorrelation", type="h", col="red", ylim = c(min(stacf), max(stacf)));
 
@@ -317,6 +323,8 @@ plot(stacf, main="Space-Time Autocorrelation Function",xlab="Time Lags", ylab="S
 abline(ubound, 0, lty=2, col="blue");
 abline(lbound, 0, lty=2, col="blue");
 abline(0, 0);
+
+print(1)
 
 return(list(stacf=stacf, ubound=ubound, lbound=lbound))
 
@@ -340,6 +348,7 @@ T_len <- nrow(Z);
 partialSTACF <- matrix(0,nLags+1, 1);
 partialSTACF [1,1] <- 1;
 
+print(1)
 
 W_fit <- list();
 W_fit$W<-W;
@@ -356,6 +365,8 @@ partialSTACF[order+1,1]<-model$BETA[len];
 
 }
 
+print(1)
+
 # Calculate confidence intervals
 
 nSE <- 2;
@@ -363,6 +374,8 @@ P<-0;
 sigmaQ <- sqrt(T_len-P-1);
 ubound <- nSE/sigmaQ;
 lbound <- -nSE/sigmaQ;
+
+print(1)
 
 plot(partialSTACF, main="Space-Time Partial Autocorrelation Function",xlab="Time Lags", ylab="ST Partial Autocorrelation", type="h", col="red", ylim=c(-0.25, 1));
 

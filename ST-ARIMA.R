@@ -274,11 +274,7 @@ library(forecast)
 source("starima_package.R")
 library(reshape2)
 
-# 将数据从长格式转换为宽格式
-wide_df <- dcast(filtered_df, TimeStamp ~ Station, value.var = "Flow")
-wide_df <- wide_df[, -1]
-# 转换为矩阵
-df_mtx <- as.matrix(wide_df)
+
 
 
 # 处理权重矩阵，进行行标准化和无限值的替换
@@ -289,19 +285,42 @@ weights[!is.finite(weights)] <- 0
 row_sums <- apply(weights, 1, sum)
 weights_norm <- t(t(weights) / row_sums)
 
-
-# Space-time Autocorrelation and partial autocorrelation analysis
-stacf(df_mtx, weights_norm, 24*3)
-
-# 进行季节性差分
-df_mtx.diff <- diff(df_mtx,lag=24,differences=1)
-
-stacf(df_mtx.diff, weights_norm, 24*3)
-
-# 查看stpacf图
-stpacf(df_mtx, weights_norm, 24*3)
-stpacf(df_mtx.diff,weights_norm,48)
+library(xts)
+# 将数据从长格式转换为宽格式
+wide_df <- dcast(filtered_df, TimeStamp ~ Station, value.var = "Flow")
+# 创建时间序列数据
+wide_df$TimeStamp <- as.POSIXct(wide_df$TimeStamp,format = "%m/%d/%Y %H:%M:%S")
+ts_data_multivar <- xts(wide_df[, -1], order.by = wide_df$TimeStamp)
 
 
-# Step 3. Model Identification of STARIMA
+library(vars)
+
+# 假设你有一个名为weight的空间权重矩阵
+# 用于存储预测结果的列表
+predictions_list <- list()
+
+# 遍历每个空间单元
+for (i in 1:ncol(ts_data_multivar)) {
+  # 提取单变量时间序列
+  single_ts <- ts_data_multivar[, i]
+  
+  # 对单变量时间序列进行ARIMA建模
+  arima_model <- auto.arima(single_ts)
+  
+  # 预测
+  n_periods <- 24*3 # 预测期数
+  arima_forecast <- forecast(arima_model, h = n_periods)
+  
+  # 将预测结果存储到列表中
+  predictions_list[[i]] <- arima_forecast$mean
+  print(i)
+}
+
+# 将预测结果整合为矩阵
+predictions_matrix <- do.call(cbind, predictions_list)
+
+
+
+
+st_arima_forecast <- predictions_matrix %*% weights_norm
 
