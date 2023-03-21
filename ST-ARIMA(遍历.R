@@ -303,36 +303,36 @@ test_data <- ts_data_multivar[(24*25+1):(24*31),]
 library(vars)
 library(tseries)
 
-# 目标空间单元的列名
-target_unit_colname <- "817198"
+predictions_list <- list()
 
-# 通过列名获取目标空间单元的索引
-target_unit <- match(target_unit_colname, colnames(train_data))
-
-# 提取目标空间单元的单变量时间序列
-single_ts <- ts(train_data[, target_unit], frequency = 24)
-
-# 对单变量时间序列进行ARIMA建模
-arima_model <- auto.arima(single_ts)
-
-# 预测
-n_periods <- 24*6 # 预测期数
-arima_forecast <- forecast(arima_model, h = n_periods)
-
-
-# 创建一个矩阵来存储与目标单元相邻的预测值
-neighbour_predictions_matrix <- matrix(0, nrow = n_periods, ncol = length(weights_list[["neighbours"]][[target_unit]]))
-
-# 用arima_forecast填充矩阵（我们假设目标单元的所有邻居具有相同的预测值）
-for (j in 1:length(weights_list[["neighbours"]][[target_unit]])) {
-  neighbour_predictions_matrix[, j] <- arima_forecast$mean
+# 遍历每个空间单元
+for (i in 1:ncol(train_data)) {
+  # 提取单变量时间序列
+  single_ts <- ts(train_data[, i], frequency = 24)
+  
+  # 对单变量时间序列进行ARIMA建模
+  arima_model <- auto.arima(single_ts)
+  
+  # 预测
+  n_periods <- 24*6 # 预测期数
+  arima_forecast <- forecast(arima_model, h = n_periods)
+  
+  # 将预测结果存储到列表中
+  predictions_list[[i]] <- arima_forecast$mean
+  print(i)
+  print(arima_forecast$method)
 }
+
+# 将预测结果整合为矩阵
+predictions_matrix <- do.call(cbind, predictions_list)
+
 
 # 将空间自回归模型应用于预测结果
 st_arima_forecast <- matrix(0, nrow = n_periods, ncol = 1)
 for (t in 1:n_periods) {
-  st_arima_forecast[t, 1] <- sum(weights_list[["weights"]][[target_unit]] * neighbour_predictions_matrix[t, ])
+  st_arima_forecast[t, 1] <- sum(weights_list[["weights"]] * predictions_matrix[t, ])
 }
+
 
 # 对比预测结果与实际结果
 
@@ -347,11 +347,9 @@ colnames(test_data_817198) <- "Value"
 # 使用rbind将两个数据框堆叠在一起
 combined_data <- rbind(test_data_817198, st_arima_forecast_817198)
 
-
 # 为数据框添加时间戳和来源列
 comparison_data <- data.frame(
-  Timestamp = seq(as.POSIXct("2023-01-26 00:00:00", tz = "UTC"), 
-                  by = "hour", length.out = 24 * 6),
+  Timestamp = rep(timestamps, 2),
   Value = combined_data$'Value',
   Source = c(rep("Actual", length(test_data_817198)), 
              rep("Forecast", length(st_arima_forecast_817198)))

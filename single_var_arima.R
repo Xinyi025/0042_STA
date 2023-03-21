@@ -1,57 +1,47 @@
-# Convert data to a time series object
-single_ts <- ts(train_data[, 3], frequency = 24)
+# 目标空间单元的列名
+target_unit_colname <- "817198"
 
-# ADF test
-library(tseries)
-adf_test <- adf.test(single_ts)
-print(adf_test)
+# 通过列名获取目标空间单元的索引
+target_unit <- match(target_unit_colname, colnames(train_data))
 
+# 提取目标空间单元的单变量时间序列
+single_ts <- ts(train_data[, target_unit], frequency = 24)
 
-# Plot ACF graph
-acf(single_ts, lag.max = 24*3, main = "Autocorrelation Function (ACF)")
+# 对单变量时间序列进行ARIMA建模
+auto_arima_model <- auto.arima(single_ts)
 
-# Perform seasonal differencing
-single_ts.diff <- diff(single_ts, lag=24, differences=1)
-
-# Plot ACF graph of the differenced series
-acf(single_ts.diff, lag.max = 24*3, main = "Autocorrelation Function (ACF)")
-
-# Plot PACF graph
-pacf(single_ts.diff, lag.max = 24*3,main = "Partial Autocorrelation Function (PACF)")
+# 预测
+n_periods <- 24*6 # 预测期数
+arima_forecast <- forecast(auto_arima_model, h = n_periods)
 
 
-# Build an ARIMA(4,1,5) model
-arima_model <- arima(single_ts.diff, order = c(4, 1, 5))
-auto_arima_model  <- auto.arima(single_ts.diff)
+# 对比预测结果与实际结果
 
-# Display model summary
-summary(arima_model)
-summary(auto_arima_model)
+# 提取列名为"817198"的数据
+predict_data <- as.data.frame(st_arima_forecast)
+actual_data <- as.data.frame(test_data[,target_unit])
 
-# Forecast n_periods future time points
-n_periods <- 24 * 6
+# 将列名统一为"Value"
+colnames(predict_data) <- "Value"
+colnames(actual_data) <- "Value"
 
+# 使用rbind将两个数据框堆叠在一起
+combined_data <- rbind(predict_data, actual_data)
 
-# Extract actual values
-actual_values <- test_data[, 1]
-
-# Create timestamp column
-timestamps <- seq(as.POSIXct("2023-01-26 00:00:00", tz = "UTC"),
-                  by = "hour", length.out = n_periods)
-
-# Create a data frame to compare actual and forecasted values
+# 为数据框添加时间戳和来源列
 comparison_data <- data.frame(
-  Timestamp = c(timestamps, timestamps),
-  Value = c(actual_values, predicted_values),
-  Source = c(rep("Actual", length(actual_values)),
-             rep("Forecast", length(predicted_values)))
+  Timestamp = seq(as.POSIXct("2023-01-26 00:00:00", tz = "UTC"), 
+                  by = "hour", length.out = 24 * 6),
+  Value = combined_data$'Value',
+  Source = c(rep("Actual", length(auctual_data)), 
+             rep("Forecast", length(predict_data)))
 )
 
-# Plot line chart
+# 绘制折线图
 ggplot(comparison_data, aes(x = Timestamp, y = Value, color = Source)) +
   geom_line() +
   theme_minimal() +
-  labs(title = "Comparison of Actual and Forecasted Traffic Volume",
+  labs(title = "Comparison of Actual and Forecasted Traffic Volume for Station 817198",
        x = "Date",
        y = "Traffic Volume") +
   theme(legend.title = element_blank())
