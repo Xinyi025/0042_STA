@@ -233,29 +233,41 @@ for (i in 1:n) {
     start_node <- filtered_stations$nearest_node[i]
     end_node <- filtered_stations$nearest_node[j]
     distance <- shortest_path_matrix[as.character(start_node), as.character(end_node)]
+    if (i == j) {
+      distance <- 0
+    } else {
+      if (distance == 0) {
+        distance <- 0.0001
+      }
+    }
     station_distance_matrix[i, j] <- distance
   }
 }
-station_distance_matrix
 as.matrix(station_distance_matrix)
 
+
+write.csv(station_distance_matrix, "station_mtx.csv")
 
 # 以station_distance_matrix作为距离矩阵，应用反距离权重法得到空间权重矩阵
 library(spdep)
 # 将距离矩阵转换为距离对象
 # 构建反距离权重矩阵
-weights <- 1/station_distance_matrix
 
-# 处理权重矩阵，进行行标准化和无限值的替换
-weights <- as.matrix(weights)
-# 将所有的infinite值替换为0
+weights <- 1/station_distance_matrix
 weights[!is.finite(weights)] <- 0
+weights
+
+
 # 行标准化
 row_sums <- apply(weights, 1, sum)
+
 weights_norm <- t(t(weights) / row_sums)
+
+write.csv(weights_norm, "weights.csv")
 
 # 将权重矩阵标准化
 weights_list <- mat2listw(weights_norm, style = "W")
+
 
 
 # 合并两个数据框
