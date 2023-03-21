@@ -302,6 +302,7 @@ test_data <- ts_data_multivar[(24*25+1):(24*31),]
 
 library(vars)
 library(tseries)
+
 # 目标空间单元的列名
 target_unit_colname <- "817198"
 
@@ -333,7 +334,6 @@ for (t in 1:n_periods) {
   st_arima_forecast[t, 1] <- sum(weights_list[["weights"]][[target_unit]] * neighbour_predictions_matrix[t, ])
 }
 
-
 # 对比预测结果与实际结果
 
 # 提取列名为"817198"的数据
@@ -347,9 +347,11 @@ colnames(test_data_817198) <- "Value"
 # 使用rbind将两个数据框堆叠在一起
 combined_data <- rbind(test_data_817198, st_arima_forecast_817198)
 
+
 # 为数据框添加时间戳和来源列
 comparison_data <- data.frame(
-  Timestamp = rep(timestamps, 2),
+  Timestamp = seq(as.POSIXct("2023-01-26 00:00:00", tz = "UTC"), 
+                  by = "hour", length.out = 24 * 6),
   Value = combined_data$'Value',
   Source = c(rep("Actual", length(test_data_817198)), 
              rep("Forecast", length(st_arima_forecast_817198)))

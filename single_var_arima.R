@@ -1,5 +1,5 @@
 # Convert data to a time series object
-single_ts <- ts(train_data[, 1], frequency = 24)
+single_ts <- ts(train_data[, 3], frequency = 24)
 
 # ADF test
 library(tseries)
@@ -21,8 +21,8 @@ pacf(single_ts.diff, lag.max = 24*3,main = "Partial Autocorrelation Function (PA
 
 
 # Build an ARIMA(4,1,5) model
-arima_model <- arima(single_ts, order = c(4, 1, 5))
-auto_arima_model  <- auto.arima(single_ts)
+arima_model <- arima(single_ts.diff, order = c(4, 1, 5))
+auto_arima_model  <- auto.arima(single_ts.diff)
 
 # Display model summary
 summary(arima_model)
