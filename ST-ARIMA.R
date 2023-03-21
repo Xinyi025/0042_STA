@@ -113,7 +113,7 @@ library(sf)
 point_data <- st_as_sf(stations, coords = c("longitude", "latitude"), crs = 4326)
 
 # 创建表示矩形边界的简单要素集（sf）对象
-polygon_wkt <- "POLYGON((-117.77845892429981234 33.54450494870994959, -117.77845892429981234 34.23419506307818239, -116.96792918321867205 34.23419506307818239, -116.96792918321867205 33.54450494870994959, -117.77845892429981234 33.54450494870994959))"
+polygon_wkt <- "POLYGON((-117.5790472696296689 34.0396970074302061, -117.5790472696296689 34.10093960379779077, -117.50803961360503536 34.10093960379779077, -117.50803961360503536 34.0396970074302061, -117.5790472696296689 34.0396970074302061))"
 polygon_sf <- st_as_sf(st_as_sfc(polygon_wkt), crs = 4326)
 
 # 使用st_intersects()函数找到位于矩形内的站点的逻辑向量
@@ -245,8 +245,17 @@ library(spdep)
 # 将距离矩阵转换为距离对象
 # 构建反距离权重矩阵
 weights <- 1/station_distance_matrix
+
+# 处理权重矩阵，进行行标准化和无限值的替换
+weights <- as.matrix(weights)
+# 将所有的infinite值替换为0
+weights[!is.finite(weights)] <- 0
+# 行标准化
+row_sums <- apply(weights, 1, sum)
+weights_norm <- t(t(weights) / row_sums)
+
 # 将权重矩阵标准化
-weights_list <- mat2listw(weights, style = "W")
+weights_list <- mat2listw(weights_norm, style = "W")
 
 
 # 合并两个数据框
@@ -277,13 +286,6 @@ library(reshape2)
 
 
 
-# 处理权重矩阵，进行行标准化和无限值的替换
-weights <- as.matrix(weights)
-# 将所有的infinite值替换为0
-weights[!is.finite(weights)] <- 0
-# 行标准化
-row_sums <- apply(weights, 1, sum)
-weights_norm <- t(t(weights) / row_sums)
 
 library(xts)
 # 将数据从长格式转换为宽格式
@@ -293,34 +295,71 @@ wide_df$TimeStamp <- as.POSIXct(wide_df$TimeStamp,format = "%m/%d/%Y %H:%M:%S")
 ts_data_multivar <- xts(wide_df[, -1], order.by = wide_df$TimeStamp)
 
 
+# 将 2023 年 1 月 22 日 之前的数据作为训练集，其他数据作为测试集
+train_data <- ts_data_multivar[1:(24*25),]
+test_data <- ts_data_multivar[(24*25+1):(24*31),]
+
+
 library(vars)
+library(tseries)
+# 目标空间单元的列名
+target_unit_colname <- "817198"
 
-# 假设你有一个名为weight的空间权重矩阵
-# 用于存储预测结果的列表
-predictions_list <- list()
+# 通过列名获取目标空间单元的索引
+target_unit <- match(target_unit_colname, colnames(train_data))
 
-# 遍历每个空间单元
-for (i in 1:ncol(ts_data_multivar)) {
-  # 提取单变量时间序列
-  single_ts <- ts_data_multivar[, i]
-  
-  # 对单变量时间序列进行ARIMA建模
-  arima_model <- auto.arima(single_ts)
-  
-  # 预测
-  n_periods <- 24*3 # 预测期数
-  arima_forecast <- forecast(arima_model, h = n_periods)
-  
-  # 将预测结果存储到列表中
-  predictions_list[[i]] <- arima_forecast$mean
-  print(i)
+# 提取目标空间单元的单变量时间序列
+single_ts <- ts(train_data[, target_unit], frequency = 24)
+
+# 对单变量时间序列进行ARIMA建模
+arima_model <- auto.arima(single_ts)
+
+# 预测
+n_periods <- 24*6 # 预测期数
+arima_forecast <- forecast(arima_model, h = n_periods)
+
+
+# 创建一个矩阵来存储与目标单元相邻的预测值
+neighbour_predictions_matrix <- matrix(0, nrow = n_periods, ncol = length(weights_list[["neighbours"]][[target_unit]]))
+
+# 用arima_forecast填充矩阵（我们假设目标单元的所有邻居具有相同的预测值）
+for (j in 1:length(weights_list[["neighbours"]][[target_unit]])) {
+  neighbour_predictions_matrix[, j] <- arima_forecast$mean
 }
 
-# 将预测结果整合为矩阵
-predictions_matrix <- do.call(cbind, predictions_list)
+# 将空间自回归模型应用于预测结果
+st_arima_forecast <- matrix(0, nrow = n_periods, ncol = 1)
+for (t in 1:n_periods) {
+  st_arima_forecast[t, 1] <- sum(weights_list[["weights"]][[target_unit]] * neighbour_predictions_matrix[t, ])
+}
 
 
+# 对比预测结果与实际结果
 
+# 提取列名为"817198"的数据
+st_arima_forecast_817198 <- as.data.frame(st_arima_forecast)
+test_data_817198 <- as.data.frame(test_data[,target_unit])
 
-st_arima_forecast <- predictions_matrix %*% weights_norm
+# 将列名统一为"Value"
+colnames(st_arima_forecast_817198) <- "Value"
+colnames(test_data_817198) <- "Value"
 
+# 使用rbind将两个数据框堆叠在一起
+combined_data <- rbind(test_data_817198, st_arima_forecast_817198)
+
+# 为数据框添加时间戳和来源列
+comparison_data <- data.frame(
+  Timestamp = rep(timestamps, 2),
+  Value = combined_data$'Value',
+  Source = c(rep("Actual", length(test_data_817198)), 
+             rep("Forecast", length(st_arima_forecast_817198)))
+)
+
+# 绘制折线图
+ggplot(comparison_data, aes(x = Timestamp, y = Value, color = Source)) +
+  geom_line() +
+  theme_minimal() +
+  labs(title = "Comparison of Actual and Forecasted Traffic Volume for Station 817198",
+       x = "Date",
+       y = "Traffic Volume") +
+  theme(legend.title = element_blank())
