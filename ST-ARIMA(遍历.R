@@ -376,3 +376,7 @@ ggplot(comparison_data, aes(x = Timestamp, y = Value, color = Source)) +
        x = "Date",
        y = "Traffic Volume") +
   theme(legend.title = element_blank())
+
+
+
+rmarkdown::render("Coursework.Rmd", pandoc_path = "C:/Users/Xinyi Liu/AppData/Local/Pandoc/pandoc.exe")

@@ -370,6 +370,20 @@ comparison_data <- data.frame(
 )
 
 # 绘制折线图
+
+matplot(1:144,cbind(test_data_817198, st_arima_forecast_817198),type="l")
+
+write.csv(cbind(test_data_817198, st_arima_forecast_817198), "cbind.csv")
+
+ggplot(st_arima_forecast_817198, aes(x = row(st_arima_forecast_817198),y = Value)) +
+  geom_line() +
+  theme_minimal() +
+  labs(title = "Comparison of Actual and Forecasted Traffic Volume for Station 817198",
+       x = "Date",
+       y = "Traffic Volume") +
+  theme(legend.title = element_blank())
+
+
 ggplot(comparison_data, aes(x = Timestamp, y = Value, color = Source)) +
   geom_line() +
   theme_minimal() +
